@@ -161,7 +161,7 @@ $s = New-gSpannerSession $db
 Let's have a look how many tuples we have in Accounts.
 
 ``` PowerShell
-$ 'Select count(*) Count from Accounts' | Start-gSpannerSql -Session $s -SingleUse | fl *
+$ 'Select count(*) Count from Accounts' | Invoke-gSpannerSql -Session $s -SingleUse | fl *
 
 executeSql  : @{metadata=; stats=; rows=System.Object[]}
 transaction : @{singleUse=}
