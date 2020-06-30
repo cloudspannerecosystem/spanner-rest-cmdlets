@@ -178,7 +178,7 @@ To create a CSV file from the first 10 tuples the command would look like this:
 
 ``` PowerShell
 'Select * from Accounts order by Number Limit 10' |
-Start-gSpannerSql -Session $s -SingleUse -ExpandResultSet |
+Invoke-gSpannerSql -Session $s -SingleUse -ExpandResultSet |
 ConvertTo-Csv |
 Set-Content First10.csv
 ```
