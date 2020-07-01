@@ -199,4 +199,6 @@ To avoid incurring unwanted charges, you should remove your Spanner cluster from
 Remove-gSpannerInstance -Instance $i
 ```
 
+Please feel free to report issues and send pull requests, but note that this application is not officially supported as part of the Cloud Spanner product.
+
 Enjoy!
