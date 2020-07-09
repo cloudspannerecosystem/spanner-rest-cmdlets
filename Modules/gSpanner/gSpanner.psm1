@@ -329,7 +329,7 @@ Function New-gSpannerSession {
 Function Remove-gSpannerSession {
     [CmdletBinding()]
     param (
-        [Parameter(Mandatory, ValueFromPipeline, Position = 1)]
+        [Parameter(ValueFromPipeline, Position = 1)]
         $Session
     )
     Begin { }
@@ -432,7 +432,7 @@ Function Set-gSpannerSchema {
         $s = @()
     }
     Process {
-        $s += ($_ ?? $Statements)
+        $s += [string]($_ ?? $Statements)
     }
     End {
         If ( $s.Count -eq 0 ) {
@@ -874,36 +874,91 @@ Function Get-gSpannerColumnHeader {
     )
     ( $ResultSet.metadata.rowType.fields ? $ResultSet.metadata.rowType.fields[$Index].name : $null ) ?? 'Column{0:00#}' -f $Index
 }
+Function Get-gSpannerColumn {
+    [CmdletBinding()]
+    Param(
+        [Parameter(ValueFromPipeline, Mandatory)]
+        $Field
+    )
+    Process {
+        $f = $_ ?? $Field
+        $t = switch ( $f.type.code ) {
+            'BYTES' {
+                [System.Byte[]]
+            }
+            'DATE' {
+                [System.DateTime]
+            }
+            'BOOL' {
+                [System.Boolean]
+            }
+            'FLOAT64' {
+                [System.Double]
+            }
+            'INT64' {
+                [System.Int64]
+            }
+            'TIMESTAMP' {
+                [System.DateTime]
+            }
+            'STRING' {
+                [System.String]
+            }
+            default {
+                [System.String]
+            }
+        }
+        '{0} {1}: {2}' -f $f.name, $f.type.code, $t | Write-Verbose -Verbose:$VerbosePreference
+        [PSCustomObject]@{
+            Name = $f.name ?? 'Column{0:00#}';
+            Type = $t
+        }
+    }
+}
+
 Function Get-gSpannerResultSet {
     Param (
         $ResultSet,
         [switch]
         $Streaming
     )
-    If ( $Streaming ) {
-        $i = 0
-        $r = New-Object PSCustomObject
-        $ResultSet.values | % {
-            $name = Get-gSpannerColumnHeader -ResultSet $ResultSet -Index $i
-            Add-Member -InputObject $r -MemberType NoteProperty -Name $name -Value $_
-            $i = ++$i % $ResultSet.metadata.rowType.fields.Length
-            If ( $i -eq 0) {
-                $r
+    Begin {
+        $fields = @($ResultSet.metadata.rowType.fields | Get-gSpannerColumn)
+    }
+    Process {
+        If ( $Streaming ) {
+            $i = 0
+            $r = New-Object PSCustomObject
+            $ResultSet.values | % {
+                $f = $fields[$i]
+                $n = $f.Name -f $i
+                $v = $f.Type.FullName -eq 'System.Byte[]' ? [System.Convert]::FromBase64String($_) : $_
+                '{0} is {1}: {2}' -f $n, $f.Type, $v | Write-Verbose -Verbose:$VerbosePreference
+                Add-Member -InputObject $r -MemberType NoteProperty -Name $n -Value ($v -as $f.Type)
+                $i = ++$i % $ResultSet.metadata.rowType.fields.Length
+                If ( $i -eq 0) {
+                    $r
+                    $r = New-Object PSCustomObject
+                }
+            }
+        }
+        Else {
+            $ResultSet.rows | % {
+                $i = 0
                 $r = New-Object PSCustomObject
+                $_ | % {
+                    $f = $fields[$i]
+                    $n = $f.Name -f $i
+                    $v = $f.Type.FullName -eq 'System.Byte[]' ? [System.Convert]::FromBase64String($_) : $_
+                    '{0} is {1}: {2}' -f $n, $f.Type, $v | Write-Verbose -Verbose:$VerbosePreference
+                    Add-Member -InputObject $r -MemberType NoteProperty -Name $n -Value ( $v -as $f.Type  )
+                    $i += 1
+                }
+                $r
             }
         }
     }
-    Else {
-        $ResultSet.rows | % {
-            $i = 0
-            $r = New-Object PSCustomObject
-            $_ | % {
-                $name = Get-gSpannerColumnHeader -ResultSet $ResultSet -Index $i
-                Add-Member -InputObject $r -MemberType NoteProperty -Name $name -Value $_
-                $i += 1
-            }
-            $r
-        }
+    End {
     }
 }
 Function Publish-gSpannerTransaction {
@@ -1506,8 +1561,8 @@ Function Add-gSpannerItems {
 # SIG # Begin signature block
 # MIIdEQYJKoZIhvcNAQcCoIIdAjCCHP4CAQExCzAJBgUrDgMCGgUAMGkGCisGAQQB
 # gjcCAQSgWzBZMDQGCisGAQQBgjcCAR4wJgIDAQAABBAfzDtgWUsITrck0sYpfvNR
-# AgEAAgEAAgEAAgEAAgEAMCEwCQYFKw4DAhoFAAQU6AfTWuI9eBgrt+5PauVFHgsr
-# ms+gghiiMIIFNTCCAx2gAwIBAgIQT/hgdSzRMK1Ptmol1X/K6zANBgkqhkiG9w0B
+# AgEAAgEAAgEAAgEAAgEAMCEwCQYFKw4DAhoFAAQU9nzlc8qhunrEBqm0hV1ZKeEE
+# 4sigghiiMIIFNTCCAx2gAwIBAgIQT/hgdSzRMK1Ptmol1X/K6zANBgkqhkiG9w0B
 # AQsFADAOMQwwCgYDVQQDEwNnb2QwIBcNMTYwOTA4MTUxOTE5WhgPMjA1OTExMDIy
 # MjE2MzNaMA4xDDAKBgNVBAMTA2dvZDCCAiIwDQYJKoZIhvcNAQEBBQADggIPADCC
 # AgoCggIBAJKirTyUVPFLWIgo8xg/YiWwYZyKxwqJ/TdOI4sX61Xm8gzxxOxPc7H1
@@ -1641,23 +1696,23 @@ Function Add-gSpannerItems {
 # R5V3cdyxG0tLHBCcdxTBnU8vWpUIKRAmMYID2TCCA9UCAQEwJTAOMQwwCgYDVQQD
 # EwNnb2QCEyIAAAM+vsj6Ki7YVuwAAgAAAz4wCQYFKw4DAhoFAKB4MBgGCisGAQQB
 # gjcCAQwxCjAIoAKAAKECgAAwGQYJKoZIhvcNAQkDMQwGCisGAQQBgjcCAQQwHAYK
-# KwYBBAGCNwIBCzEOMAwGCisGAQQBgjcCARUwIwYJKoZIhvcNAQkEMRYEFEt71H3w
-# 2iZB8Ilh4N7nutMaXF5WMA0GCSqGSIb3DQEBAQUABIIBACM3Wein9NC0ycnXKadj
-# 9Bn4G2WkR1qYSXat/s//O2iGgf94Nj/R1pnwb/10/+OCMsqGK26chAtLTCs2DHY7
-# rqXq3EqE6LdNsBpmH6WTEdN36FtXrOn2L/+nAKEWLckYcaP5wcFEn41ObERCh391
-# 0phtJ+wJNYtPwFF+QHvRgYKr1AP4KDGgBOfKTFi7hY2hzAhYCsqc7yw+X7xSMehD
-# qi5lZ1LI+bFYckglDvA+4EdA7LbdtYV40FIJYJnI6DIMjzgix/0mrkSQQgvkLPZM
-# UAPCd5cEgj5yygieOvWTPX8McNYvWHRKHgWPuT4TDouxmJsKrkXjEL90p+eqkMoF
-# wGqhggIPMIICCwYJKoZIhvcNAQkGMYIB/DCCAfgCAQEwdjBiMQswCQYDVQQGEwJV
+# KwYBBAGCNwIBCzEOMAwGCisGAQQBgjcCARUwIwYJKoZIhvcNAQkEMRYEFBnmiMxW
+# hHopyuziSvoQeZSoRahqMA0GCSqGSIb3DQEBAQUABIIBALEzbFMa1i8zQOVRX8uy
+# 1CrztPBzREYTvedlY/yaGHo++5L+LC0ZjtLm3oukh7Kmi834CDfR9XrLA5ONWec+
+# QPYujLgAH7J8oY53be6rOoiqn0OPUJGy2ahFw/jHilSvDJtAW8UYHw6vWZlj25fn
+# r+0HspCo7C9/UQ1zYEg7nnI5ijB0N4dM9EcRDH45KlGg/Kts7dpnkd5MdoNrQX33
+# IrGY94LVggS+HFW1QFhLbhzMnwvnp4kYYzeIOnmadQMx8V2KI5V3L/PemAvszpNU
+# azyr6g8o74oIxextJXMFh4kO0Gz1lNlqmBQceJAlwMiRWY6FmvUS4cSV9+X9EMun
+# ax2hggIPMIICCwYJKoZIhvcNAQkGMYIB/DCCAfgCAQEwdjBiMQswCQYDVQQGEwJV
 # UzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3d3cuZGlnaWNlcnQu
 # Y29tMSEwHwYDVQQDExhEaWdpQ2VydCBBc3N1cmVkIElEIENBLTECEAMBmgI6/1ix
 # a9bV6uYX8GYwCQYFKw4DAhoFAKBdMBgGCSqGSIb3DQEJAzELBgkqhkiG9w0BBwEw
-# HAYJKoZIhvcNAQkFMQ8XDTIwMDYyOTEzMjg0MVowIwYJKoZIhvcNAQkEMRYEFCpe
-# 9Tslnysc0QMGLLP30Mfk0hvNMA0GCSqGSIb3DQEBAQUABIIBAAHEE19WcY9OTOWT
-# YH7Mmc0tCCJDkHPL/QaHaDIjXsBcTfFBQ6725UF9hD8ITu8FD6J3Sh7/FSjeSn4Y
-# ZeEnwWgeMnC1wLBnuBTaKpSYM9TjUEXwoicV0oET/ozmsO3CsnviDQJvuiIghFgL
-# zAur7hR4FFAlvJELIFhnf8+fturFtXDYMyCW17s2RCAKvcee8clCbmQQdy3gyeOw
-# QNPWQzDvoZlzvyInP1Q+17EEJEHTlYnlopZot+xDSL1GuOOwhxPDic9MaOiiBv4d
-# nJz6xCYPGGZXmgIqE6Sl0m+2lx5EI/+nEvxQVYoxujrFwaUY5XQvdwIc2z7Ubsww
-# pKon96Q=
+# HAYJKoZIhvcNAQkFMQ8XDTIwMDcwOTA4NDg1MlowIwYJKoZIhvcNAQkEMRYEFC1h
+# U/wZoM0BpPgdyijGjPe4DdBpMA0GCSqGSIb3DQEBAQUABIIBAJ+3NnyjOfAA2uKN
+# lxva+JpsZ3wOkK6eZJdrEAlgS/JZsRE4mkOGnTrkr2GwfSh34z/bk6QiNVaWADdZ
+# vb5CLCJJNTYpB6niH9ganic4PhSwirJU8a8KslxHw+nsGlTyefM/i7QQTyATBp07
+# hKGVOOjXFlhRLNe8XfBAIdk0Zji0YYyWsQ45CXPU/oxBaOmZt+wcjbj8td6GwMno
+# SmXXjNZu2djdVRDHVwr/k0pHERyukvya40oZvwACeUbkqFuMKsZ4bKwucvXoeW+c
+# BBAIA60QkbKVw1MWA5Daw6fp9wy3oAbIARROoIHukUDpbcX/t0PZFBRGVHsOSa/E
+# eFYasho=
 # SIG # End signature block
