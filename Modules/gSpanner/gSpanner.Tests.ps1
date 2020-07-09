@@ -65,14 +65,16 @@ Describe 'Data Tests' {
             $t | Remove-gSpannerTable -Confirm:$false
         }
         it -TestCases $testCases 'Mutltisession test' {
-            class Accounts { [int64]$Account; [int64]$Saldo }
+            $ts = (Get-Date).ToUniversalTime()
+            class Accounts { [int64]$Account; [int64]$Saldo; [datetime]$At }
             1 .. 100 |
             % {
-                [Accounts]@{ account = $_; saldo = 0 }
+                [Accounts]@{ account = $_; saldo = 0; At = $ts }
             } |
             Add-gSpannerItems -Database $database
             $s = New-gSpannerSession -Database $database
             $r = (Invoke-gSpannerSql -Session $s -SingleUse -Sql 'select * from Accounts').resultSet
+            $r[0].At | Should be $ts
             $r.Count | Should be 100
             Remove-gSpannerSession -Session $s
             $s1 = New-gSpannerSession -Database $database
